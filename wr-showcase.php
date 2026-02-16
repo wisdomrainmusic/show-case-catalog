@@ -198,6 +198,7 @@ JS;
 function wr_showcase_frontend_assets() {
     // Basic CSS
     $css = <<<CSS
+.wr-showcase-wrap{ width:100%; max-width:1200px; margin:0 auto; padding:0 12px; }
 .wr-showcase-grid{
   display:grid;
   gap:24px;
@@ -220,6 +221,9 @@ function wr_showcase_frontend_assets() {
   overflow:hidden;
   background:#fff;
   box-shadow:0 6px 18px rgba(0,0,0,.06);
+  display:flex;
+  flex-direction:column;
+  min-width:0;
 }
 .wr-showcase-media{
   position:relative;
@@ -233,6 +237,21 @@ function wr_showcase_frontend_assets() {
   object-fit:cover;
   display:block;
 }
+.wr-showcase-imgbtn{
+  position:absolute;
+  left:14px;
+  top:14px;
+  z-index:3;
+  background:rgba(17,17,17,.86);
+  color:#fff;
+  border:0;
+  border-radius:999px;
+  padding:10px 14px;
+  font-weight:800;
+  letter-spacing:.2px;
+  cursor:pointer;
+}
+.wr-showcase-imgbtn:hover{ opacity:.92; }
 .wr-showcase-body{
   padding:18px 18px 20px;
 }
@@ -270,9 +289,117 @@ function wr_showcase_frontend_assets() {
   font-weight:700;
   letter-spacing:.2px;
 }
+
+/* Tabs */
+.wr-showcase-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+  justify-content:space-between;
+  margin:0 0 16px;
+}
+.wr-showcase-tabs{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+.wr-tab{
+  appearance:none;
+  border:1px solid rgba(0,0,0,.12);
+  background:#fff;
+  padding:10px 14px;
+  border-radius:999px;
+  cursor:pointer;
+  font-weight:700;
+}
+.wr-tab.is-active{
+  background:#111;
+  color:#fff;
+  border-color:#111;
+}
+.wr-showcase-search{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.wr-showcase-search input{
+  width:min(360px, 70vw);
+  padding:10px 14px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.12);
+}
+
+/* Modal (Image viewer) */
+.wr-modal{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.72);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:999999;
+  padding:22px;
+}
+.wr-modal.is-open{ display:flex; }
+.wr-modal-inner{
+  width:min(1100px, 96vw);
+  background:#111;
+  border-radius:18px;
+  overflow:hidden;
+  position:relative;
+}
+.wr-modal-imgwrap{
+  background:#000;
+  aspect-ratio:16/9;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.wr-modal-imgwrap img{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  display:block;
+}
+.wr-modal-close{
+  position:absolute;
+  top:10px;
+  right:10px;
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  border:0;
+  border-radius:999px;
+  width:42px;
+  height:42px;
+  cursor:pointer;
+  font-size:18px;
+}
+.wr-modal-nav{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  border:0;
+  border-radius:999px;
+  width:54px;
+  height:54px;
+  cursor:pointer;
+  font-size:20px;
+}
+.wr-modal-prev{ left:12px; }
+.wr-modal-next{ right:12px; }
+.wr-modal-title{
+  padding:14px 16px;
+  color:#fff;
+  font-weight:800;
+  background:rgba(0,0,0,.35);
+}
 CSS;
 
-    // Basic JS: rotate gallery images on hover
+    // JS: hover rotate + tabs + search + modal gallery
     $js = <<<JS
 (function(){
   function parseImages(el){
@@ -321,8 +448,127 @@ CSS;
     card.addEventListener('mouseleave', stop);
   }
 
+  // ---------- Modal gallery ----------
+  var modal = null;
+  var modalImg = null;
+  var modalTitle = null;
+  var modalImages = [];
+  var modalIndex = 0;
+
+  function ensureModal(){
+    if(modal) return;
+    modal = document.getElementById('wr-showcase-modal');
+    if(!modal) return;
+    modalImg = modal.querySelector('img[data-wr-modal-img]');
+    modalTitle = modal.querySelector('[data-wr-modal-title]');
+    modal.addEventListener('click', function(e){
+      if(e.target === modal) closeModal();
+    });
+    var closeBtn = modal.querySelector('[data-wr-modal-close]');
+    if(closeBtn) closeBtn.addEventListener('click', closeModal);
+    var prevBtn = modal.querySelector('[data-wr-modal-prev]');
+    var nextBtn = modal.querySelector('[data-wr-modal-next]');
+    if(prevBtn) prevBtn.addEventListener('click', function(){ step(-1); });
+    if(nextBtn) nextBtn.addEventListener('click', function(){ step(1); });
+
+    document.addEventListener('keydown', function(e){
+      if(!modal.classList.contains('is-open')) return;
+      if(e.key === 'Escape') closeModal();
+      if(e.key === 'ArrowLeft') step(-1);
+      if(e.key === 'ArrowRight') step(1);
+    });
+  }
+
+  function openModal(images, title){
+    ensureModal();
+    if(!modal) return;
+    modalImages = (images || []).filter(Boolean);
+    modalIndex = 0;
+    if(modalTitle) modalTitle.textContent = title || '';
+    renderModal();
+    modal.classList.add('is-open');
+    document.documentElement.style.overflow = 'hidden';
+  }
+
+  function closeModal(){
+    if(!modal) return;
+    modal.classList.remove('is-open');
+    document.documentElement.style.overflow = '';
+  }
+
+  function renderModal(){
+    if(!modalImg) return;
+    if(!modalImages.length){
+      modalImg.src = '';
+      return;
+    }
+    if(modalIndex < 0) modalIndex = modalImages.length - 1;
+    if(modalIndex >= modalImages.length) modalIndex = 0;
+    modalImg.src = modalImages[modalIndex];
+  }
+
+  function step(dir){
+    if(!modalImages.length) return;
+    modalIndex += dir;
+    renderModal();
+  }
+
+  // ---------- Tabs + search filtering ----------
+  function initFiltering(scope){
+    var tabs = scope.querySelectorAll('.wr-tab');
+    var cards = scope.querySelectorAll('.wr-showcase-card');
+    var search = scope.querySelector('input[data-wr-search]');
+    var activeTerm = 'all';
+    var q = '';
+
+    function apply(){
+      cards.forEach(function(card){
+        var term = card.getAttribute('data-term') || '';
+        var title = (card.getAttribute('data-title') || '').toLowerCase();
+        var okTerm = (activeTerm === 'all') ? true : (term.split(' ').indexOf(activeTerm) !== -1);
+        var okQ = !q ? true : title.indexOf(q) !== -1;
+        card.style.display = (okTerm && okQ) ? '' : 'none';
+      });
+    }
+
+    tabs.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        tabs.forEach(function(x){ x.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+        activeTerm = btn.getAttribute('data-term') || 'all';
+        apply();
+      });
+    });
+
+    if(search){
+      search.addEventListener('input', function(){
+        q = (search.value || '').trim().toLowerCase();
+        apply();
+      });
+    }
+
+    apply();
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.wr-showcase-card').forEach(initCard);
+
+    // Modal open buttons
+    document.querySelectorAll('[data-wr-open-gallery]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        var card = btn.closest('.wr-showcase-card');
+        if(!card) return;
+        var media = card.querySelector('.wr-showcase-media');
+        if(!media) return;
+        var images = parseImages(media);
+        var title = card.getAttribute('data-title') || '';
+        openModal(images, title);
+      });
+    });
+
+    // Filtering scope (wrapper)
+    document.querySelectorAll('.wr-showcase-wrap').forEach(initFiltering);
   });
 })();
 JS;
@@ -504,6 +750,7 @@ function wr_showcase_shortcode($atts) {
     $atts = shortcode_atts([
         'category' => '',
         'columns' => 3,
+        'tabs' => 'true',
     ], $atts);
 
     $args = [
@@ -526,12 +773,48 @@ function wr_showcase_shortcode($atts) {
     ob_start();
 
     $cols = max(1, min(6, (int) ($atts['columns'] ?? 3)));
+    $tabs_enabled = (empty($atts['category']) && strtolower((string)$atts['tabs']) !== 'false');
+
+    echo '<div class="wr-showcase-wrap">';
+
+    // Tabs toolbar (only when no fixed category)
+    if ($tabs_enabled) {
+        $terms = get_terms([
+            'taxonomy' => 'wr_showcase_cat',
+            'hide_empty' => true,
+        ]);
+
+        echo '<div class="wr-showcase-toolbar">';
+        echo '<div class="wr-showcase-tabs">';
+        echo '<button type="button" class="wr-tab is-active" data-term="all">Tümü</button>';
+        if (!is_wp_error($terms) && !empty($terms)) {
+            foreach ($terms as $t) {
+                echo '<button type="button" class="wr-tab" data-term="' . esc_attr($t->slug) . '">' . esc_html($t->name) . '</button>';
+            }
+        }
+        echo '</div>';
+        echo '<div class="wr-showcase-search">';
+        echo '<input type="search" data-wr-search placeholder="Demo ara...">';
+        echo '</div>';
+        echo '</div>';
+    }
+
     echo '<div class="wr-showcase-grid columns-' . esc_attr($cols) . '">';
 
     if ($query->have_posts()) :
         while ($query->have_posts()) : $query->the_post();
 
-            echo '<div class="wr-showcase-card">';
+            $post_id = get_the_ID();
+            $title = get_the_title();
+
+            // Terms for filtering
+            $slugs = [];
+            $item_terms = get_the_terms($post_id, 'wr_showcase_cat');
+            if (!empty($item_terms) && !is_wp_error($item_terms)) {
+                foreach ($item_terms as $it) $slugs[] = $it->slug;
+            }
+
+            echo '<div class="wr-showcase-card" data-title="' . esc_attr($title) . '" data-term="' . esc_attr(implode(' ', $slugs)) . '">';
 
             // Build image list (featured + gallery up to 5)
             $images = [];
@@ -553,6 +836,8 @@ function wr_showcase_shortcode($atts) {
             $main = !empty($images[0]) ? $images[0] : '';
 
             echo '<div class="wr-showcase-media" data-images="' . esc_attr(wp_json_encode($images)) . '">';
+            // "İNCELE" button opens modal
+            echo '<button type="button" class="wr-showcase-imgbtn" data-wr-open-gallery="1">İNCELE</button>';
             if ($main) {
                 echo '<img class="wr-showcase-main" src="' . esc_url($main) . '" alt="' . esc_attr(get_the_title()) . '">';
             } else {
@@ -561,9 +846,20 @@ function wr_showcase_shortcode($atts) {
             echo '</div>';
 
             echo '<div class="wr-showcase-body">';
-            echo '<h3>' . get_the_title() . '</h3>';
+            echo '<h3>' . esc_html($title) . '</h3>';
             echo '<div class="wr-showcase-excerpt">' . get_the_excerpt() . '</div>';
-            echo '<a class="wr-showcase-btn" href="' . get_permalink() . '">Canlı Önizle</a>';
+
+            // Live preview should go to Demo URL (external) if set
+            $demo_url = get_post_meta($post_id, '_wr_demo_url', true);
+            $demo_url = $demo_url ? esc_url($demo_url) : '';
+
+            if ($demo_url) {
+                echo '<a class="wr-showcase-btn" href="' . $demo_url . '" target="_blank" rel="noopener noreferrer">Canlı Önizle</a>';
+            } else {
+                // fallback to single page
+                echo '<a class="wr-showcase-btn" href="' . get_permalink() . '">Canlı Önizle</a>';
+            }
+
             echo '</div>';
             echo '</div>';
 
@@ -574,6 +870,22 @@ function wr_showcase_shortcode($atts) {
     endif;
 
     echo '</div>';
+
+    // Modal markup (once per shortcode output)
+    echo '
+    <div class="wr-modal" id="wr-showcase-modal" aria-hidden="true">
+      <div class="wr-modal-inner" role="dialog" aria-modal="true">
+        <button class="wr-modal-close" type="button" data-wr-modal-close aria-label="Close">✕</button>
+        <button class="wr-modal-nav wr-modal-prev" type="button" data-wr-modal-prev aria-label="Previous">‹</button>
+        <button class="wr-modal-nav wr-modal-next" type="button" data-wr-modal-next aria-label="Next">›</button>
+        <div class="wr-modal-imgwrap">
+          <img data-wr-modal-img src="" alt="">
+        </div>
+        <div class="wr-modal-title" data-wr-modal-title></div>
+      </div>
+    </div>';
+
+    echo '</div>'; // .wr-showcase-wrap
 
     return ob_get_clean();
 }
