@@ -479,6 +479,43 @@ function wr_showcase_frontend_assets() {
   height:auto;
   display:block;
 }
+
+/* FULL-WIDTH mode: images go edge-to-edge, no theme background showing */
+.wr-showcase-landing.wr-mode-full .wr-showcase-landing-inner{
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:28px 0 60px;
+}
+/* Keep header boxed for readability */
+.wr-showcase-landing.wr-mode-full .wr-showcase-landing-head{
+  width:min(1100px, 92vw);
+  margin:0 auto 18px;
+  padding:0 12px;
+}
+/* Gallery becomes full width */
+.wr-showcase-landing.wr-mode-full .wr-showcase-landing-gallery{
+  width:100%;
+  gap:0;
+}
+/* Each screenshot spans full viewport width */
+.wr-showcase-landing.wr-mode-full .wr-shot{
+  border-radius:0;
+  border:0;
+  box-shadow:none;
+  background:#000;
+}
+/* True edge-to-edge trick even inside theme containers */
+.wr-showcase-landing.wr-mode-full .wr-shot{
+  width:100vw;
+  margin-left:calc(50% - 50vw);
+  margin-right:calc(50% - 50vw);
+}
+.wr-showcase-landing.wr-mode-full .wr-shot img{
+  width:100%;
+  height:auto;
+  display:block;
+}
 CSS;
 
     // JS: hover rotate + tabs + search + modal gallery
