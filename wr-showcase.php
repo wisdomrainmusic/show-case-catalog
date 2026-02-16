@@ -339,6 +339,112 @@ JS;
 add_action('wp_enqueue_scripts', 'wr_showcase_frontend_assets');
 
 /**
+ * Admin UX: Show shortcodes in list tables (Items + Categories)
+ */
+
+// --- Items list: add Shortcode column
+function wr_showcase_items_columns($columns) {
+    // Put shortcode after title if possible
+    $new = [];
+    foreach ($columns as $key => $label) {
+        $new[$key] = $label;
+        if ($key === 'title') {
+            $new['wr_shortcode'] = 'Shortcode';
+        }
+    }
+    if (!isset($new['wr_shortcode'])) {
+        $new['wr_shortcode'] = 'Shortcode';
+    }
+    return $new;
+}
+add_filter('manage_edit-wr_showcase_columns', 'wr_showcase_items_columns');
+
+function wr_showcase_items_column_content($column, $post_id) {
+    if ($column !== 'wr_shortcode') return;
+    $sc = '[wr_showcase id="' . absint($post_id) . '"]';
+    echo '<code style="user-select:all;">' . esc_html($sc) . '</code>';
+    echo '<button type="button" class="button button-small wr-copy-shortcode" data-sc="' . esc_attr($sc) . '" style="margin-left:8px;">Copy</button>';
+}
+add_action('manage_wr_showcase_posts_custom_column', 'wr_showcase_items_column_content', 10, 2);
+
+// --- Categories list: add Shortcode column
+function wr_showcase_cat_columns($columns) {
+    $columns['wr_shortcode'] = 'Shortcode';
+    return $columns;
+}
+add_filter('manage_edit-wr_showcase_cat_columns', 'wr_showcase_cat_columns');
+
+function wr_showcase_cat_column_content($content, $column_name, $term_id) {
+    if ($column_name !== 'wr_shortcode') return $content;
+    $term = get_term($term_id, 'wr_showcase_cat');
+    if (!$term || is_wp_error($term)) return $content;
+
+    $sc = '[wr_showcase category="' . $term->slug . '"]';
+    $html  = '<code style="user-select:all;">' . esc_html($sc) . '</code>';
+    $html .= '<button type="button" class="button button-small wr-copy-shortcode" data-sc="' . esc_attr($sc) . '" style="margin-left:8px;">Copy</button>';
+    return $html;
+}
+add_filter('manage_wr_showcase_cat_custom_column', 'wr_showcase_cat_column_content', 10, 3);
+
+// --- Add a small helper box above the categories table: global shortcode
+function wr_showcase_cat_page_helper_note() {
+    $screen = get_current_screen();
+    if (!$screen || $screen->id !== 'edit-wr_showcase_cat') return;
+    $sc = '[wr_showcase]';
+    echo '<div class="notice notice-info" style="padding:10px 12px;margin-top:12px;">';
+    echo '<strong>Global Showcase Shortcode:</strong> ';
+    echo '<code style="user-select:all;">' . esc_html($sc) . '</code>';
+    echo '<button type="button" class="button button-small wr-copy-shortcode" data-sc="' . esc_attr($sc) . '" style="margin-left:8px;">Copy</button>';
+    echo '</div>';
+}
+add_action('admin_notices', 'wr_showcase_cat_page_helper_note');
+
+// --- Admin JS for "Copy" buttons
+function wr_showcase_admin_copy_js($hook) {
+    // Only load on Showcase Items list and Showcase Categories page
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen) return;
+
+    $is_items = ($screen->id === 'edit-wr_showcase');
+    $is_cats  = ($screen->id === 'edit-wr_showcase_cat');
+    if (!$is_items && !$is_cats) return;
+
+    $js = <<<JS
+(function(){
+  function copyText(text){
+    if(navigator.clipboard && window.isSecureContext){
+      return navigator.clipboard.writeText(text);
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch(e){}
+    document.body.removeChild(ta);
+    return Promise.resolve();
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest('.wr-copy-shortcode');
+    if(!btn) return;
+    e.preventDefault();
+    var sc = btn.getAttribute('data-sc') || '';
+    copyText(sc).then(function(){
+      var old = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(function(){ btn.textContent = old; }, 900);
+    });
+  });
+})();
+JS;
+    wp_add_inline_script('jquery-core', $js);
+}
+add_action('admin_enqueue_scripts', 'wr_showcase_admin_copy_js');
+
+/**
  * Default Categories
  */
 function wr_showcase_default_categories() {
