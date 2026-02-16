@@ -9,6 +9,8 @@ Author: WisdomRain
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
+define('WR_SHOWCASE_DIR', plugin_dir_path(__FILE__));
+
 /**
  * Register Custom Post Type
  */
@@ -422,6 +424,61 @@ function wr_showcase_frontend_assets() {
   font-weight:800;
   background:rgba(0,0,0,.35);
 }
+
+/* Landing (single showcase) */
+.wr-showcase-landing{ width:100%; }
+.wr-showcase-landing-inner{
+  width:min(1100px, 92vw);
+  margin:0 auto;
+  padding:36px 0 60px;
+}
+.wr-showcase-landing-head{
+  text-align:left;
+  margin:0 0 22px;
+}
+.wr-showcase-landing-title{
+  margin:0 0 10px;
+  font-size:40px;
+  line-height:1.1;
+}
+.wr-showcase-landing-desc{
+  margin:0 0 16px;
+  opacity:.75;
+  font-size:16px;
+}
+.wr-showcase-landing-cta{
+  position:sticky;
+  top:18px;
+  z-index:50;
+  display:flex;
+  justify-content:flex-start;
+  margin:18px 0 10px;
+}
+.wr-showcase-landing-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:12px 16px;
+  border-radius:999px;
+  background:#111;
+  color:#fff;
+  text-decoration:none;
+  font-weight:800;
+}
+.wr-showcase-landing-btn:hover{ opacity:.92; }
+.wr-showcase-landing-gallery{ display:flex; flex-direction:column; gap:16px; }
+.wr-shot{
+  border-radius:18px;
+  overflow:hidden;
+  background:#f3f4f6;
+  border:1px solid rgba(0,0,0,.08);
+  box-shadow:0 12px 30px rgba(0,0,0,.08);
+}
+.wr-shot img{
+  width:100%;
+  height:auto;
+  display:block;
+}
 CSS;
 
     // JS: hover rotate + tabs + search + modal gallery
@@ -608,6 +665,18 @@ JS;
     wp_add_inline_script('wr-showcase-inline', $js);
 }
 add_action('wp_enqueue_scripts', 'wr_showcase_frontend_assets');
+
+/**
+ * Template override for single wr_showcase
+ */
+function wr_showcase_single_template($template) {
+    if (is_singular('wr_showcase')) {
+        $custom = WR_SHOWCASE_DIR . 'templates/single-wr_showcase.php';
+        if (file_exists($custom)) return $custom;
+    }
+    return $template;
+}
+add_filter('single_template', 'wr_showcase_single_template');
 
 /**
  * Admin UX: Show shortcodes in list tables (Items + Categories)
