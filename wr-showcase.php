@@ -199,9 +199,11 @@ function wr_showcase_frontend_assets() {
     // Basic CSS
     $css = <<<CSS
 .wr-showcase-wrap{ width:100%; max-width:1200px; margin:0 auto; padding:0 12px; }
+.wr-showcase-wrap *{ box-sizing:border-box; }
 .wr-showcase-grid{
   display:grid;
   gap:24px;
+  justify-content:center;
 }
 .wr-showcase-grid.columns-2{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 .wr-showcase-grid.columns-3{ grid-template-columns:repeat(3,minmax(0,1fr)); }
@@ -215,6 +217,9 @@ function wr_showcase_frontend_assets() {
   .wr-showcase-grid.columns-3,
   .wr-showcase-grid.columns-2{ grid-template-columns:repeat(1,minmax(0,1fr)); }
 }
+
+/* Ensure cards don't stretch weirdly in some themes */
+.wr-showcase-grid > .wr-showcase-card{ width:100%; }
 .wr-showcase-card{
   border:1px solid rgba(0,0,0,.08);
   border-radius:18px;
@@ -306,18 +311,23 @@ function wr_showcase_frontend_assets() {
   align-items:center;
 }
 .wr-tab{
+  /* theme overrides fix */
   appearance:none;
-  border:1px solid rgba(0,0,0,.12);
-  background:#fff;
+  -webkit-appearance:none;
+  border:1px solid rgba(0,0,0,.18) !important;
+  background:#fff !important;
+  color:#111 !important;
   padding:10px 14px;
   border-radius:999px;
   cursor:pointer;
   font-weight:700;
+  line-height:1;
+  opacity:1 !important;
 }
 .wr-tab.is-active{
-  background:#111;
-  color:#fff;
-  border-color:#111;
+  background:#111 !important;
+  color:#fff !important;
+  border-color:#111 !important;
 }
 .wr-showcase-search{
   display:flex;
@@ -328,7 +338,9 @@ function wr_showcase_frontend_assets() {
   width:min(360px, 70vw);
   padding:10px 14px;
   border-radius:999px;
-  border:1px solid rgba(0,0,0,.12);
+  border:1px solid rgba(0,0,0,.18) !important;
+  background:#fff !important;
+  color:#111 !important;
 }
 
 /* Modal (Image viewer) */
@@ -349,6 +361,7 @@ function wr_showcase_frontend_assets() {
   border-radius:18px;
   overflow:hidden;
   position:relative;
+  box-shadow:0 18px 60px rgba(0,0,0,.35);
 }
 .wr-modal-imgwrap{
   background:#000;
@@ -375,20 +388,32 @@ function wr_showcase_frontend_assets() {
   height:42px;
   cursor:pointer;
   font-size:18px;
+  opacity:1 !important;
+}
+.wr-modal-close:hover{
+  background:rgba(255,255,255,.18);
 }
 .wr-modal-nav{
   position:absolute;
   top:50%;
   transform:translateY(-50%);
-  background:rgba(255,255,255,.12);
-  color:#fff;
+  background:rgba(255,255,255,.22) !important;
+  color:#fff !important;
   border:0;
   border-radius:999px;
   width:54px;
   height:54px;
   cursor:pointer;
   font-size:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  opacity:1 !important;
+  visibility:visible !important;
+  pointer-events:auto !important;
+  text-shadow:0 1px 2px rgba(0,0,0,.6);
 }
+.wr-modal-nav:hover{ background:rgba(255,255,255,.30) !important; }
 .wr-modal-prev{ left:12px; }
 .wr-modal-next{ right:12px; }
 .wr-modal-title{
