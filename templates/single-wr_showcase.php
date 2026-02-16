@@ -15,7 +15,7 @@ if (!empty($gallery)) {
 }
 
 ?>
-<div class="wr-showcase-landing">
+<div class="wr-showcase-landing wr-mode-full">
   <div class="wr-showcase-landing-inner">
     <header class="wr-showcase-landing-head">
       <h1 class="wr-showcase-landing-title"><?php echo esc_html(get_the_title($post_id)); ?></h1>
