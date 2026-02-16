@@ -498,18 +498,16 @@ function wr_showcase_frontend_assets() {
   width:100%;
   gap:0;
 }
-/* Each screenshot spans full viewport width */
+/* Each screenshot spans near-full viewport width with soft spacing */
 .wr-showcase-landing.wr-mode-full .wr-shot{
-  border-radius:0;
-  border:0;
-  box-shadow:none;
+  width:calc(100vw - 48px); /* 24px left + 24px right */
+  margin-left:calc(50% - 50vw + 24px);
+  margin-right:calc(50% - 50vw + 24px);
+  border-radius:14px;
+  border:1px solid rgba(0,0,0,.08);
+  box-shadow:0 10px 30px rgba(0,0,0,.06);
   background:#000;
-}
-/* True edge-to-edge trick even inside theme containers */
-.wr-showcase-landing.wr-mode-full .wr-shot{
-  width:100vw;
-  margin-left:calc(50% - 50vw);
-  margin-right:calc(50% - 50vw);
+  overflow:hidden;
 }
 .wr-showcase-landing.wr-mode-full .wr-shot img{
   width:100%;
