@@ -23,7 +23,7 @@ function wr_showcase_register_post_type() {
         ],
         'public' => true,
         'has_archive' => false,
-        'rewrite' => ['slug' => 'showcase-item'],
+        'rewrite' => ['slug' => 'e-ticaret-site-demolari'],
         'supports' => ['title', 'editor', 'excerpt', 'thumbnail'],
         'show_in_rest' => true,
     ]);
@@ -61,6 +61,16 @@ function wr_showcase_add_meta_boxes() {
         'normal',
         'high'
     );
+
+    // Sidebar: Preset info (user requested)
+    add_meta_box(
+        'wr_showcase_preset_box',
+        'Preset Settings',
+        'wr_showcase_render_preset_box',
+        'wr_showcase',
+        'side',
+        'default'
+    );
 }
 add_action('add_meta_boxes', 'wr_showcase_add_meta_boxes');
 
@@ -77,7 +87,7 @@ function wr_showcase_render_media_box($post) {
     </p>
 
     <p>
-        <label><strong>Gallery Images (up to 5)</strong></label>
+        <label><strong>Gallery Images (recommended 5–15)</strong></label>
     </p>
 
     <div id="wr-gallery-preview" style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -98,7 +108,24 @@ function wr_showcase_render_media_box($post) {
     <p style="margin-top:10px;">
         <button type="button" class="button" id="wr-gallery-upload">Select Images</button>
         <button type="button" class="button" id="wr-gallery-clear">Clear</button>
-        <span style="margin-left:10px;color:#666;">(Choose up to 5 images)</span>
+        <span style="margin-left:10px;color:#666;">(You can select up to 15 images. The landing page shows them in your chosen order.)</span>
+    </p>
+    <?php
+}
+
+function wr_showcase_render_preset_box($post){
+    $preset_name = get_post_meta($post->ID, '_wr_preset_name', true);
+    $preset_key  = get_post_meta($post->ID, '_wr_preset_key', true);
+    ?>
+    <p style="margin:0 0 8px;">
+        <label><strong>Preset Name</strong></label>
+        <input type="text" name="wr_preset_name" value="<?php echo esc_attr($preset_name); ?>" style="width:100%;" placeholder="Kadın Giyim 1 Soft Rose">
+        <small style="color:#666;">Example: “Kadın Giyim 1 Soft Rose” or “Steel Navy”.</small>
+    </p>
+    <p style="margin:10px 0 0;">
+        <label><strong>Preset Key (optional)</strong></label>
+        <input type="text" name="wr_preset_key" value="<?php echo esc_attr($preset_key); ?>" style="width:100%;" placeholder="soft-rose">
+        <small style="color:#666;">Leave empty to auto-generate from Preset Name.</small>
     </p>
     <?php
 }
@@ -123,10 +150,24 @@ function wr_showcase_save_meta($post_id) {
         update_post_meta($post_id, '_wr_demo_url', esc_url_raw($_POST['wr_demo_url']));
     }
 
+    // Preset fields (sidebar)
+    if (isset($_POST['wr_preset_name'])) {
+        $name = sanitize_text_field($_POST['wr_preset_name']);
+        update_post_meta($post_id, '_wr_preset_name', $name);
+    }
+    if (isset($_POST['wr_preset_key'])) {
+        $key = sanitize_text_field($_POST['wr_preset_key']);
+        if (!$key) {
+            $name = isset($_POST['wr_preset_name']) ? sanitize_text_field($_POST['wr_preset_name']) : '';
+            $key = $name ? sanitize_title($name) : '';
+        }
+        update_post_meta($post_id, '_wr_preset_key', $key);
+    }
+
     if (isset($_POST['wr_gallery_ids'])) {
-        // enforce max 5 images
+        // enforce max 15 images (landing scroll story)
         $ids = array_filter(array_map('absint', explode(',', sanitize_text_field($_POST['wr_gallery_ids']))));
-        $ids = array_slice($ids, 0, 5);
+        $ids = array_slice($ids, 0, 15);
         update_post_meta($post_id, '_wr_gallery_ids', implode(',', $ids));
     }
 }
@@ -167,14 +208,14 @@ jQuery(function($){
         if(frame){ frame.open(); return; }
 
         frame = wp.media({
-            title: 'Select up to 5 images',
+            title: 'Select up to 15 images',
             button: { text: 'Use these images' },
             multiple: true
         });
 
         frame.on('select', function(){
             const selection = frame.state().get('selection').toArray();
-            const ids = selection.map(att => att.id).slice(0,5);
+            const ids = selection.map(att => att.id).slice(0,15);
             $('#wr_gallery_ids').val(ids.join(','));
             renderPreview(ids);
         });
@@ -425,16 +466,24 @@ function wr_showcase_frontend_assets() {
   background:rgba(0,0,0,.35);
 }
 
-/* Landing (single showcase) */
+/* -------- Single Landing (scroll story) -------- */
 .wr-showcase-landing{ width:100%; }
 .wr-showcase-landing-inner{
-  width:min(1100px, 92vw);
-  margin:0 auto;
-  padding:36px 0 60px;
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:28px 0 60px;
 }
 .wr-showcase-landing-head{
-  text-align:left;
-  margin:0 0 22px;
+  width:min(1100px, 92vw);
+  margin:0 auto 18px;
+  padding:0 12px;
+}
+.wr-showcase-kicker{
+  font-weight:800;
+  letter-spacing:.2px;
+  opacity:.7;
+  margin:0 0 8px;
 }
 .wr-showcase-landing-title{
   margin:0 0 10px;
@@ -442,9 +491,19 @@ function wr_showcase_frontend_assets() {
   line-height:1.1;
 }
 .wr-showcase-landing-desc{
-  margin:0 0 16px;
+  margin:0 0 14px;
   opacity:.75;
   font-size:16px;
+}
+.wr-showcase-meta{ display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+.wr-pill{
+  display:inline-flex;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.10);
+  background:rgba(255,255,255,.65);
+  font-weight:700;
+  font-size:12px;
 }
 .wr-showcase-landing-cta{
   position:sticky;
@@ -452,7 +511,7 @@ function wr_showcase_frontend_assets() {
   z-index:50;
   display:flex;
   justify-content:flex-start;
-  margin:18px 0 10px;
+  margin:14px 0 6px;
 }
 .wr-showcase-landing-btn{
   display:inline-flex;
@@ -466,41 +525,12 @@ function wr_showcase_frontend_assets() {
   font-weight:800;
 }
 .wr-showcase-landing-btn:hover{ opacity:.92; }
-.wr-showcase-landing-gallery{ display:flex; flex-direction:column; gap:16px; }
-.wr-shot{
-  border-radius:18px;
-  overflow:hidden;
-  background:#f3f4f6;
-  border:1px solid rgba(0,0,0,.08);
-  box-shadow:0 12px 30px rgba(0,0,0,.08);
-}
-.wr-shot img{
-  width:100%;
-  height:auto;
-  display:block;
-}
 
-/* FULL-WIDTH mode: images go edge-to-edge, no theme background showing */
-.wr-showcase-landing.wr-mode-full .wr-showcase-landing-inner{
-  width:100%;
-  max-width:none;
-  margin:0;
-  padding:28px 0 60px;
-}
-/* Keep header boxed for readability */
-.wr-showcase-landing.wr-mode-full .wr-showcase-landing-head{
-  width:min(1100px, 92vw);
-  margin:0 auto 18px;
-  padding:0 12px;
-}
-/* Gallery becomes full width */
-.wr-showcase-landing.wr-mode-full .wr-showcase-landing-gallery{
-  width:100%;
-  gap:0;
-}
-/* Each screenshot spans near-full viewport width with soft spacing */
-.wr-showcase-landing.wr-mode-full .wr-shot{
-  width:calc(100vw - 48px); /* 24px left + 24px right */
+.wr-showcase-landing-gallery{ width:100%; }
+
+/* Full-width but with breathing space + border (your request) */
+.wr-shot{
+  width:calc(100vw - 48px);
   margin-left:calc(50% - 50vw + 24px);
   margin-right:calc(50% - 50vw + 24px);
   border-radius:14px;
@@ -508,12 +538,40 @@ function wr_showcase_frontend_assets() {
   box-shadow:0 10px 30px rgba(0,0,0,.06);
   background:#000;
   overflow:hidden;
+  position:relative;
 }
-.wr-showcase-landing.wr-mode-full .wr-shot img{
+.wr-shot img{
   width:100%;
   height:auto;
   display:block;
 }
+
+/* Browser frame effect */
+.wr-browserbar{
+  height:34px;
+  background:rgba(0,0,0,.55);
+  display:flex;
+  align-items:center;
+  padding:0 12px;
+  gap:8px;
+}
+.wr-browserbar span{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:rgba(255,255,255,.55);
+  display:inline-block;
+}
+
+.wr-seo-block{
+  width:min(1100px, 92vw);
+  margin:26px auto 0;
+  padding:0 12px;
+}
+.wr-seo-block h2{ margin:0 0 10px; font-size:26px; line-height:1.2; }
+.wr-seo-block h3{ margin:18px 0 8px; font-size:18px; }
+.wr-seo-block p{ margin:0 0 12px; opacity:.88; }
+.wr-seo-block ul{ margin:0 0 12px 18px; opacity:.9; }
 CSS;
 
     // JS: hover rotate + tabs + search + modal gallery
@@ -866,6 +924,56 @@ function wr_showcase_activate() {
     wr_showcase_default_categories();
 }
 register_activation_hook(__FILE__, 'wr_showcase_activate');
+
+/**
+ * Rank Math: Auto title/description/focus keyword when fields are empty
+ * (Only for wr_showcase single pages)
+ */
+function wr_sc_rm_get_cat_name($post_id){
+    $terms = wp_get_post_terms($post_id, 'wr_showcase_cat');
+    if (!empty($terms) && !is_wp_error($terms)) return $terms[0]->name;
+    return 'E-Ticaret';
+}
+
+function wr_sc_rm_auto_title($title){
+    if (!is_singular('wr_showcase')) return $title;
+    $post_id = get_queried_object_id();
+    if (!$post_id) return $title;
+    $custom = get_post_meta($post_id, 'rank_math_title', true);
+    if ($custom) return $title; // user filled it
+
+    $cat = wr_sc_rm_get_cat_name($post_id);
+    $preset = get_post_meta($post_id, '_wr_preset_name', true);
+    $preset = $preset ? ' – ' . $preset : '';
+    return $cat . ' E-Ticaret Demo Sitesi' . $preset . ' | ' . get_the_title($post_id);
+}
+add_filter('rank_math/frontend/title', 'wr_sc_rm_auto_title', 20);
+
+function wr_sc_rm_auto_description($desc){
+    if (!is_singular('wr_showcase')) return $desc;
+    $post_id = get_queried_object_id();
+    if (!$post_id) return $desc;
+    $custom = get_post_meta($post_id, 'rank_math_description', true);
+    if ($custom) return $desc;
+
+    $cat = wr_sc_rm_get_cat_name($post_id);
+    $preset = get_post_meta($post_id, '_wr_preset_name', true);
+    $preset_txt = $preset ? ($preset . ' tasarımıyla ') : '';
+
+    return $cat . ' için hazırlanmış ' . $preset_txt . 'modern e-ticaret demo sitesi. Ana sayfa akışı, vitrin ve UX örnekleri tek sayfada. Canlı önizleyin.';
+}
+add_filter('rank_math/frontend/description', 'wr_sc_rm_auto_description', 20);
+
+function wr_sc_rm_auto_focus_keyword($keywords){
+    if (!is_singular('wr_showcase')) return $keywords;
+    $post_id = get_queried_object_id();
+    if (!$post_id) return $keywords;
+    $custom = get_post_meta($post_id, 'rank_math_focus_keyword', true);
+    if ($custom) return $keywords;
+    $cat = wr_sc_rm_get_cat_name($post_id);
+    return sanitize_text_field($cat . ' e-ticaret demo');
+}
+add_filter('rank_math/frontend/focus_keyword', 'wr_sc_rm_auto_focus_keyword', 20);
 
 
 /**
