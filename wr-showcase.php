@@ -3,13 +3,153 @@
 Plugin Name: WR Showcase
 Text Domain: wr-showcase
 Description: Demo showcase system with category support and landing page shortcode.
-Version: 1.0.0
+Version: 1.3.5
 Author: WisdomRain
 */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 define('WR_SHOWCASE_DIR', plugin_dir_path(__FILE__));
+
+// Preset library storage (CSV import)
+define('WR_SC_PRESETS_OPTION', 'wr_sc_preset_library');
+
+/**
+ * Admin: Preset Library (CSV import)
+ */
+function wr_sc_get_preset_library(){
+    $lib = get_option(WR_SC_PRESETS_OPTION, []);
+    return is_array($lib) ? $lib : [];
+}
+
+function wr_sc_parse_csv_delimiter($line){
+    $candidates = [',',';','\t','|'];
+    $best = ',';
+    $best_count = 0;
+    foreach ($candidates as $d){
+        $count = substr_count($line, $d);
+        if ($count > $best_count){
+            $best_count = $count;
+            $best = ($d === '\t') ? "\t" : $d;
+        }
+    }
+    return $best;
+}
+
+function wr_sc_normalize_hex($v){
+    $v = trim((string)$v);
+    if ($v === '') return '';
+    if ($v[0] !== '#') $v = '#'.$v;
+    return preg_match('/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/', $v) ? strtoupper($v) : '';
+}
+
+function wr_sc_register_admin_menu(){
+    add_submenu_page(
+        'edit.php?post_type=wr_showcase',
+        'Preset Library',
+        'Preset Library',
+        'manage_options',
+        'wr_sc_preset_library',
+        'wr_sc_render_preset_library_page'
+    );
+}
+add_action('admin_menu', 'wr_sc_register_admin_menu');
+
+function wr_sc_render_preset_library_page(){
+    if (!current_user_can('manage_options')) return;
+
+    $message = '';
+    if (isset($_POST['wr_sc_import_csv']) && check_admin_referer('wr_sc_import_csv_nonce', 'wr_sc_import_csv_nonce_field')){
+        if (!empty($_FILES['wr_sc_csv']['tmp_name'])){
+            $tmp = $_FILES['wr_sc_csv']['tmp_name'];
+            $fh = fopen($tmp, 'r');
+            if ($fh){
+                $firstLine = fgets($fh);
+                if ($firstLine === false){
+                    $message = 'CSV file is empty.';
+                } else {
+                    $delimiter = wr_sc_parse_csv_delimiter($firstLine);
+                    rewind($fh);
+
+                    $header = fgetcsv($fh, 0, $delimiter);
+                    $header = array_map(function($h){ return strtolower(trim((string)$h)); }, (array)$header);
+
+                    // required minimal columns
+                    $required = ['name','primary','dark','bg','footer','link','body_font','heading_font'];
+                    $missing = array_diff($required, $header);
+                    if (!empty($missing)){
+                        $message = 'Missing columns: '. esc_html(implode(', ', $missing));
+                    } else {
+                        $index = array_flip($header);
+                        $lib = [];
+                        $count = 0;
+                        while (($row = fgetcsv($fh, 0, $delimiter)) !== false){
+                            $name = trim((string)($row[$index['name']] ?? ''));
+                            if ($name === '') continue;
+                            $key = sanitize_title($name);
+
+                            $preset = [
+                                'name' => $name,
+                                'primary' => wr_sc_normalize_hex($row[$index['primary']] ?? ''),
+                                'dark' => wr_sc_normalize_hex($row[$index['dark']] ?? ''),
+                                'bg' => wr_sc_normalize_hex($row[$index['bg']] ?? ''),
+                                'footer' => wr_sc_normalize_hex($row[$index['footer']] ?? ''),
+                                'link' => wr_sc_normalize_hex($row[$index['link']] ?? ''),
+                                'body_font' => sanitize_text_field($row[$index['body_font']] ?? ''),
+                                'heading_font' => sanitize_text_field($row[$index['heading_font']] ?? ''),
+                                // optional helpers
+                                'short_desc' => sanitize_textarea_field($row[$index['short_desc']] ?? ($row[$index['short_description']] ?? '')),
+                                'focus_keyword' => sanitize_text_field($row[$index['focus_keyword']] ?? ''),
+                            ];
+
+                            $lib[$key] = $preset;
+                            $count++;
+                        }
+
+                        update_option(WR_SC_PRESETS_OPTION, $lib, false);
+                        $message = 'Imported presets: '. intval($count);
+                    }
+                }
+                fclose($fh);
+            }
+        } else {
+            $message = 'No file uploaded.';
+        }
+    }
+
+    $lib = wr_sc_get_preset_library();
+    echo '<div class="wrap">';
+    echo '<h1>Preset Library</h1>';
+    echo '<p>Upload your preset CSV once. Columns: <code>name, primary, dark, bg, footer, link, body_font, heading_font</code> (optional: <code>short_desc, focus_keyword</code>).</p>';
+    if ($message) echo '<div class="notice notice-info"><p>'. esc_html($message) .'</p></div>';
+
+    echo '<form method="post" enctype="multipart/form-data" style="margin:16px 0;">';
+    wp_nonce_field('wr_sc_import_csv_nonce', 'wr_sc_import_csv_nonce_field');
+    echo '<input type="file" name="wr_sc_csv" accept=".csv,text/csv" required> ';
+    echo '<button class="button button-primary" type="submit" name="wr_sc_import_csv" value="1">Import CSV</button>';
+    echo '</form>';
+
+    if (!empty($lib)){
+        echo '<h2>Loaded Presets ('. count($lib) .')</h2>';
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th>Name</th><th>Primary</th><th>Dark</th><th>BG</th><th>Link</th><th>Body font</th><th>Heading font</th>';
+        echo '</tr></thead><tbody>';
+        foreach ($lib as $k => $p){
+            echo '<tr>';
+            echo '<td><strong>'. esc_html($p['name'] ?? $k) .'</strong><br><code>'. esc_html($k) .'</code></td>';
+            echo '<td>'. esc_html($p['primary'] ?? '') .'</td>';
+            echo '<td>'. esc_html($p['dark'] ?? '') .'</td>';
+            echo '<td>'. esc_html($p['bg'] ?? '') .'</td>';
+            echo '<td>'. esc_html($p['link'] ?? '') .'</td>';
+            echo '<td>'. esc_html($p['body_font'] ?? '') .'</td>';
+            echo '<td>'. esc_html($p['heading_font'] ?? '') .'</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+    }
+
+    echo '</div>';
+}
 
 /**
  * Register Custom Post Type
@@ -71,6 +211,16 @@ function wr_showcase_add_meta_boxes() {
         'side',
         'default'
     );
+
+    // Sidebar: Preset design tokens (colors/fonts)
+    add_meta_box(
+        'wr_showcase_preset_tokens_box',
+        'Preset Design Tokens',
+        'wr_showcase_render_preset_tokens_box',
+        'wr_showcase',
+        'side',
+        'default'
+    );
 }
 add_action('add_meta_boxes', 'wr_showcase_add_meta_boxes');
 
@@ -116,7 +266,25 @@ function wr_showcase_render_media_box($post) {
 function wr_showcase_render_preset_box($post){
     $preset_name = get_post_meta($post->ID, '_wr_preset_name', true);
     $preset_key  = get_post_meta($post->ID, '_wr_preset_key', true);
+    $preset_sel  = get_post_meta($post->ID, '_wr_preset_lib_key', true);
+    $focus_kw    = get_post_meta($post->ID, '_wr_focus_keyword', true);
+    $lib         = function_exists('wr_sc_get_preset_library') ? wr_sc_get_preset_library() : [];
     ?>
+    <?php if (!empty($lib)): ?>
+      <p style="margin:0 0 10px;">
+          <label><strong>Preset (from library)</strong></label>
+          <select name="wr_preset_lib_key" style="width:100%;">
+              <option value="">— Select —</option>
+              <?php foreach($lib as $k => $p): ?>
+                  <option value="<?php echo esc_attr($k); ?>" <?php selected($preset_sel, $k); ?>><?php echo esc_html($p['name'] ?? $k); ?></option>
+              <?php endforeach; ?>
+          </select>
+          <small style="color:#666;">Upload CSV once: <em>Showcase Items → Preset Library</em>. Selecting a preset can auto-fill tokens + focus keyword on save.</small>
+      </p>
+    <?php else: ?>
+      <input type="hidden" name="wr_preset_lib_key" value="<?php echo esc_attr($preset_sel); ?>">
+    <?php endif; ?>
+
     <p style="margin:0 0 8px;">
         <label><strong>Preset Name</strong></label>
         <input type="text" name="wr_preset_name" value="<?php echo esc_attr($preset_name); ?>" style="width:100%;" placeholder="Kadın Giyim 1 Soft Rose">
@@ -127,7 +295,44 @@ function wr_showcase_render_preset_box($post){
         <input type="text" name="wr_preset_key" value="<?php echo esc_attr($preset_key); ?>" style="width:100%;" placeholder="soft-rose">
         <small style="color:#666;">Leave empty to auto-generate from Preset Name.</small>
     </p>
-    <?php
+
+    <p style="margin:12px 0 0;">
+        <label><strong>Focus Keyword (optional)</strong></label>
+        <input type="text" name="wr_focus_keyword" value="<?php echo esc_attr($focus_kw); ?>" style="width:100%;" placeholder="erkek giyim e-ticaret demo sitesi">
+        <small style="color:#666;">If empty, we auto-generate from category + preset.</small>
+        <?php $auto_kw = wr_sc_keywords_for_post($post->ID); ?>
+        <input type="hidden" name="wr_auto_focus_keyword" value="<?php echo esc_attr($auto_kw['primary'] ?? ''); ?>">
+    </p>
+    
+    <p style="margin:12px 0 0;">
+        <label><strong>Live Preview Button URL (optional)</strong></label>
+        <input type="url" name="wr_live_preview_url" value="<?php echo esc_attr(get_post_meta($post->ID, '_wr_live_preview_url', true)); ?>" style="width:100%;" placeholder="https://...">
+        <small style="color:#666;">If set, the “Canlı Önizle” button will use this link (independent from Demo URL).</small>
+    </p>
+<?php
+}
+
+function wr_showcase_render_preset_tokens_box($post){
+    $fields = [
+        'primary' => 'Primary Color',
+        'dark' => 'Dark Color',
+        'bg' => 'Background Color',
+        'footer' => 'Footer Color',
+        'link' => 'Link Color',
+        'body_font' => 'Body Font',
+        'heading_font' => 'Heading Font',
+    ];
+    echo '<div class="wr-sc-tokens" style="display:grid;gap:10px;">';
+    foreach ($fields as $key => $label) {
+        $val = get_post_meta($post->ID, '_wr_preset_' . $key, true);
+        echo '<div>';
+        echo '<label style="display:block;font-weight:700;margin:0 0 4px;">' . esc_html($label) . '</label>';
+        $ph = (strpos($key, 'font') !== false) ? 'Inter / Poppins / DM Serif Display…' : '#RRGGBB';
+        echo '<input type="text" name="wr_preset_' . esc_attr($key) . '" value="' . esc_attr($val) . '" style="width:100%;" placeholder="' . esc_attr($ph) . '">';
+        echo '</div>';
+    }
+    echo '<small style="color:#666;display:block;line-height:1.35;">Bu alanlara preset renk/font bilgilerini girerseniz, landing sayfası SEO içeriği ve görsel alt metinleri otomatik olarak bu detayları kullanır.</small>';
+    echo '</div>';
 }
 
 /**
@@ -151,6 +356,32 @@ function wr_showcase_save_meta($post_id) {
     }
 
     // Preset fields (sidebar)
+    if (isset($_POST['wr_preset_lib_key'])) {
+        $sel = sanitize_text_field($_POST['wr_preset_lib_key']);
+        update_post_meta($post_id, '_wr_preset_lib_key', $sel);
+
+        // If preset selected from library, pull values into tokens + helpers
+        if ($sel && function_exists('wr_sc_get_preset_library')) {
+            $lib = wr_sc_get_preset_library();
+            if (isset($lib[$sel]) && is_array($lib[$sel])) {
+                $p = $lib[$sel];
+                if (!empty($p['name'])) update_post_meta($post_id, '_wr_preset_name', sanitize_text_field($p['name']));
+                update_post_meta($post_id, '_wr_preset_key', $sel);
+
+                update_post_meta($post_id, '_wr_preset_primary', sanitize_text_field($p['primary'] ?? ''));
+                update_post_meta($post_id, '_wr_preset_dark', sanitize_text_field($p['dark'] ?? ''));
+                update_post_meta($post_id, '_wr_preset_bg', sanitize_text_field($p['bg'] ?? ''));
+                update_post_meta($post_id, '_wr_preset_footer', sanitize_text_field($p['footer'] ?? ''));
+                update_post_meta($post_id, '_wr_preset_link', sanitize_text_field($p['link'] ?? ''));
+                update_post_meta($post_id, '_wr_preset_body_font', sanitize_text_field($p['body_font'] ?? ''));
+                update_post_meta($post_id, '_wr_preset_heading_font', sanitize_text_field($p['heading_font'] ?? ''));
+
+                if (!empty($p['short_desc'])) update_post_meta($post_id, '_wr_preset_short_desc', sanitize_textarea_field($p['short_desc']));
+                if (!empty($p['focus_keyword'])) update_post_meta($post_id, '_wr_focus_keyword', sanitize_text_field($p['focus_keyword']));
+            }
+        }
+    }
+
     if (isset($_POST['wr_preset_name'])) {
         $name = sanitize_text_field($_POST['wr_preset_name']);
         update_post_meta($post_id, '_wr_preset_name', $name);
@@ -164,6 +395,32 @@ function wr_showcase_save_meta($post_id) {
         update_post_meta($post_id, '_wr_preset_key', $key);
     }
 
+    if (isset($_POST['wr_focus_keyword'])) {
+        update_post_meta($post_id, '_wr_focus_keyword', sanitize_text_field($_POST['wr_focus_keyword']));
+    }
+
+    // Rank Math focus keyword helper (avoid blank score)
+    $existing_rm_focus = get_post_meta($post_id, 'rank_math_focus_keyword', true);
+    if (!$existing_rm_focus) {
+        $focus = get_post_meta($post_id, '_wr_focus_keyword', true);
+        if (!$focus) {
+            $cats = wp_get_post_terms($post_id, 'wr_showcase_cat');
+            $cat_name = (!is_wp_error($cats) && !empty($cats)) ? $cats[0]->name : '';
+            // User preference: focus keyword should always be Category + "E-Ticaret Sitesi"
+            $focus = trim($cat_name ? ($cat_name . ' e-ticaret sitesi') : 'e-ticaret sitesi');
+        }
+        update_post_meta($post_id, 'rank_math_focus_keyword', $focus);
+    }
+
+    // Preset tokens (sidebar)
+    $token_keys = ['primary','dark','bg','footer','link','body_font','heading_font'];
+    foreach ($token_keys as $k) {
+        $in = 'wr_preset_' . $k;
+        if (!isset($_POST[$in])) continue;
+        $val = sanitize_text_field($_POST[$in]);
+        update_post_meta($post_id, '_wr_preset_' . $k, $val);
+    }
+
     if (isset($_POST['wr_gallery_ids'])) {
         // enforce max 15 images (landing scroll story)
         $ids = array_filter(array_map('absint', explode(',', sanitize_text_field($_POST['wr_gallery_ids']))));
@@ -172,6 +429,377 @@ function wr_showcase_save_meta($post_id) {
     }
 }
 add_action('save_post_wr_showcase', 'wr_showcase_save_meta');
+
+/**
+ * Helpers: Category + Preset + Keywords + Auto SEO content
+ */
+function wr_sc_get_primary_category_name($post_id){
+    $terms = wp_get_post_terms($post_id, 'wr_showcase_cat');
+    if (!empty($terms) && !is_wp_error($terms)) return $terms[0]->name;
+    return 'E-Ticaret';
+}
+
+function wr_sc_get_preset_label($post_id){
+    $preset_name = get_post_meta($post_id, '_wr_preset_name', true);
+    $preset_key  = get_post_meta($post_id, '_wr_preset_key', true);
+    $preset_label = $preset_name ? $preset_name : ($preset_key ? $preset_key : 'Preset');
+    return $preset_label;
+}
+
+function wr_sc_get_preset_tokens($post_id){
+    $keys = ['primary','dark','bg','footer','link','body_font','heading_font'];
+    $out = [];
+    foreach ($keys as $k) {
+        $v = trim((string)get_post_meta($post_id, '_wr_preset_' . $k, true));
+        if ($v !== '') $out[$k] = $v;
+    }
+    return $out;
+}
+
+function wr_sc_keywords_for_post($post_id){
+    $cat = wr_sc_get_primary_category_name($post_id);
+    $preset = wr_sc_get_preset_label($post_id);
+    $lower = function($s){
+        return function_exists('mb_strtolower') ? mb_strtolower($s) : strtolower($s);
+    };
+    $cat_lc = $lower($cat);
+    $preset_lc = $lower($preset);
+
+    // Focus keyword format (primary): Category + "e-ticaret sitesi"
+    $primary = $cat_lc . ' e-ticaret sitesi';
+
+    $secondary = [
+        $cat_lc . ' e-ticaret tasarımı',
+        'hazır ' . $cat_lc . ' e-ticaret sitesi',
+        'SEO uyumlu ' . $cat_lc . ' e-ticaret sitesi',
+        'mobil uyumlu ' . $cat_lc . ' e-ticaret sitesi',
+        $cat_lc . ' online mağaza örneği',
+    ];
+
+    $long_tail = [
+        $preset_lc . ' tasarımlı ' . $cat_lc . ' e-ticaret sitesi',
+        $cat_lc . ' için hazır butik e-ticaret altyapısı',
+        'performans odaklı ' . $cat_lc . ' online mağaza tasarımı',
+        'dönüşüm artıran ' . $cat_lc . ' vitrin yerleşimi',
+        $cat_lc . ' ürün liste sayfası örneği',
+        $cat_lc . ' ürün detay sayfası tasarım örneği',
+    ];
+
+    // Small rotation seed per-post (avoid identical text across pages)
+    $seed = (int)$post_id;
+    $pick = function(array $arr, $n) use ($seed){
+        $arr = array_values(array_unique(array_filter($arr)));
+        if (!$arr) return [];
+        // deterministic shuffle
+        $shuffled = $arr;
+        for ($i = count($shuffled)-1; $i > 0; $i--) {
+            $j = ($seed + $i * 37) % ($i+1);
+            $tmp = $shuffled[$i];
+            $shuffled[$i] = $shuffled[$j];
+            $shuffled[$j] = $tmp;
+        }
+        return array_slice($shuffled, 0, max(1,(int)$n));
+    };
+
+    return [
+        'cat' => $cat,
+        'preset' => $preset,
+        'primary' => $primary,
+        'secondary' => $pick($secondary, 4),
+        'long_tail' => $pick($long_tail, 4),
+    ];
+}
+
+function wr_sc_build_screenshot_alt($post_id, $index, $kind = ''){
+    $kw = wr_sc_keywords_for_post($post_id);
+    $preset = $kw['preset'];
+    $kind = $kind ? $kind : 'ekran görüntüsü';
+    $n = max(1, (int)$index);
+    return sprintf('%s – %s tasarım %s %d', $kw['primary'], $preset, $kind, $n);
+}
+
+function wr_sc_get_faq_items($post_id){
+    $kw = wr_sc_keywords_for_post($post_id);
+    $cat = $kw['cat'];
+    $preset = $kw['preset'];
+    $demo_url = get_post_meta($post_id, '_wr_demo_url', true);
+    $has_demo = !empty($demo_url);
+
+    // Image for SEO block (first gallery image or featured image)
+    $gallery_ids = get_post_meta($post_id, '_wr_gallery_ids', true);
+    $img_id = 0;
+    if (!empty($gallery_ids)) {
+        $tmp = array_filter(array_map('absint', explode(',', (string)$gallery_ids)));
+        if (!empty($tmp)) $img_id = (int)reset($tmp);
+    }
+    if (!$img_id) {
+        $feat = get_post_thumbnail_id($post_id);
+        if ($feat) $img_id = (int)$feat;
+    }
+    $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'large') : '';
+
+    $faqs = [
+        [
+            'q' => 'Bu demo gerçek bir e-ticaret sitesi mi?',
+            'a' => 'Evet. Bu sayfada gördüğünüz ekran görüntüleri gerçek bir demo mağazanın akışını temsil eder. Canlı önizleme bağlantısı varsa, tüm sayfaları doğrudan inceleyebilirsiniz.',
+        ],
+        [
+            'q' => $cat . ' için bu tasarım SEO uyumlu mu?',
+            'a' => 'Evet. Yapı; okunabilir başlık hiyerarşisi, açıklayıcı içerik ve görsel alt metinleri ile SEO temellerine uygun olacak şekilde kurgulanmıştır. İçerik, ' . $cat . ' arama niyetine göre hazırlanır.',
+        ],
+        [
+            'q' => 'Mobil uyumluluk nasıl?',
+            'a' => 'Düzen, mobil cihazlarda akıcı bir vitrin deneyimi hedefler. Ürün listeleri, menü ve CTA bileşenleri küçük ekranlarda daha rahat kullanılacak şekilde ölçeklenir.',
+        ],
+        [
+            'q' => 'Renk presetini değiştirebilir miyim?',
+            'a' => 'Evet. ' . $preset . ' sadece bir örnektir. Aynı altyapı farklı renk / tipografi presetleriyle hızlıca çeşitlendirilebilir; böylece marka kimliğinize uygun görünüm elde edebilirsiniz.',
+        ],
+    ];
+
+    if ($has_demo) {
+        $faqs[] = [
+            'q' => 'Canlı önizleme linki ne işe yarar?',
+            'a' => 'Canlı önizleme linki, demoyu ayrı sekmede açarak gerçek kullanıcı akışını (ana sayfa, kategori, ürün, sepet vb.) incelemenizi sağlar.',
+        ];
+    }
+
+    return $faqs;
+}
+
+function wr_sc_faq_schema_jsonld($post_id){
+    $faqs = wr_sc_get_faq_items($post_id);
+    $main = [];
+    foreach ($faqs as $f) {
+        $main[] = [
+            '@type' => 'Question',
+            'name' => wp_strip_all_tags((string)$f['q']),
+            'acceptedAnswer' => [
+                '@type' => 'Answer',
+                'text' => wp_strip_all_tags((string)$f['a']),
+            ],
+        ];
+    }
+    return [
+        '@context' => 'https://schema.org',
+        '@type' => 'FAQPage',
+        'mainEntity' => $main,
+    ];
+}
+
+function wr_sc_render_auto_seo_block($post_id){
+    $kw = wr_sc_keywords_for_post($post_id);
+    $tokens = wr_sc_get_preset_tokens($post_id);
+    $demo_url = get_post_meta($post_id, '_wr_demo_url', true);
+    $has_demo = !empty($demo_url);
+
+    // Image for SEO block (first gallery image or featured image)
+    $gallery_ids = get_post_meta($post_id, '_wr_gallery_ids', true);
+    $img_id = 0;
+    if (!empty($gallery_ids)) {
+        $tmp = array_filter(array_map('absint', explode(',', (string)$gallery_ids)));
+        if (!empty($tmp)) $img_id = (int)reset($tmp);
+    }
+    if (!$img_id) {
+        $feat = get_post_thumbnail_id($post_id);
+        if ($feat) $img_id = (int)$feat;
+    }
+    $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'large') : '';
+
+    $cat = $kw['cat'];
+    $preset = $kw['preset'];
+    $primary = $kw['primary'];
+    $sec = $kw['secondary'];
+    $lt = $kw['long_tail'];
+
+    $token_bits = [];
+    if (!empty($tokens['primary'])) $token_bits[] = 'primary renk: ' . $tokens['primary'];
+    if (!empty($tokens['bg'])) $token_bits[] = 'arka plan: ' . $tokens['bg'];
+    if (!empty($tokens['heading_font'])) $token_bits[] = 'başlık fontu: ' . $tokens['heading_font'];
+    if (!empty($tokens['body_font'])) $token_bits[] = 'gövde fontu: ' . $tokens['body_font'];
+    $token_line = $token_bits ? ' (Preset detayları: ' . implode(' • ', $token_bits) . ')' : '';
+
+    $variants_intro = [
+        'Bu demo sayfası, <strong>' . esc_html($cat) . '</strong> sektöründe satış yapmak isteyen markalar için hazırlanmış örnek bir vitrindir. ' . esc_html($preset) . ' tasarım yaklaşımı; sade, hızlı ve satış odaklı bir akış hedefler.',
+        '<strong>' . esc_html($cat) . '</strong> için hazırlanmış bu örnek çalışma, gerçek bir mağaza akışını tek sayfada görmenizi sağlar. ' . esc_html($preset) . ' preset’i ile renk/typography dengesi vurgulanır.',
+        'Bu sayfa, ' . esc_html($cat) . ' işletmeleri için örnek bir <em>e-ticaret vitrin kurgusu</em> sunar. ' . esc_html($preset) . ' görünümüyle modern bir mağaza dili hedeflenmiştir.',
+    ];
+    $variants_benefit = [
+        'Amaç; ziyaretçinin ürünleri hızla keşfetmesi, kategori–ürün liste–ürün detay geçişlerini net biçimde anlaması ve CTA noktalarını rahatça görmesidir.',
+        'Bu yapı; ürün keşfi, kategori gezinmesi ve satın alma adımlarını sadeleştiren bir yerleşim mantığına dayanır. Özellikle mobil kullanımda hız ve okunabilirlik ön plandadır.',
+        'Kurgunun odağı; vitrin alanlarını öne çıkarırken, ürün detay hissini güçlendirmek ve satın alma yolculuğunu gereksiz adımlardan arındırmaktır.',
+    ];
+    $pick = function(array $arr) use ($post_id){
+        if (!$arr) return '';
+        return $arr[$post_id % count($arr)];
+    };
+
+    $intro = $pick($variants_intro);
+    $benefit = $pick($variants_benefit);
+
+    ob_start();
+    ?>
+    <section class="wr-seo-block" id="seo-block">
+
+      <?php if (!empty($img_url)) : ?>
+        <figure class="wr-seo-figure" style="margin:24px auto;max-width:980px;">
+          <img src="<?php echo esc_url($img_url); ?>" alt="<?php echo esc_attr($primary); ?>" loading="lazy" style="width:100%;height:auto;border-radius:18px;border:1px solid rgba(0,0,0,.08);">
+        </figure>
+      <?php endif; ?>
+
+      <h2><?php echo esc_html($cat); ?> E-Ticaret Sitesi – <?php echo esc_html($preset); ?> Tasarım</h2>
+
+      <h3><?php echo esc_html($primary); ?> için modern vitrin kurgusu</h3>
+
+      <p><?php echo wp_kses_post($intro); ?></p>
+
+      <p>
+        Bu landing kurgusu özellikle <strong><?php echo esc_html($primary); ?></strong> araması yapan kullanıcıların niyetine göre hazırlanır: ziyaretçi, ana sayfa vitrinini aşağı doğru kaydırıyormuş gibi ilerler ve sayfa bölümlerini sırayla değerlendirir.
+        Bu sayede <strong>hazır mağaza örneği</strong> arayanlar için; kategori düzeni, ürün liste deneyimi ve sayfa hiyerarşisi tek bakışta anlaşılır.
+        <?php if ($token_line): ?><?php echo esc_html($token_line); ?><?php endif; ?>
+      </p>
+
+      <p>
+        <?php echo esc_html($benefit); ?>
+        Eğer hedefiniz <?php echo esc_html($cat); ?> ürünlerinde daha yüksek dönüşüm ise, bu tip bir yerleşim; vitrinde öne çıkan kategoriler, popüler ürün blokları ve sade bir gezinme ile “ilk izlenim” kalitesini yükseltir.
+      </p>
+
+      <?php
+        // Add an on-page image with focus keyword in ALT for Rank Math checks.
+        $img_alt = $primary;
+        $first_id = 0;
+        $gallery = get_post_meta($post_id, '_wr_gallery_ids', true);
+        if (!empty($gallery)) {
+          $ids = array_filter(array_map('absint', explode(',', (string)$gallery)));
+          $first_id = $ids[0] ?? 0;
+        }
+        if (!$first_id) {
+          $first_id = get_post_thumbnail_id($post_id);
+        }
+      ?>
+      <?php if ($first_id): ?>
+        <figure class="wr-seo-figure">
+          <?php echo wp_get_attachment_image($first_id, 'large', false, ['alt' => $img_alt, 'loading' => 'lazy']); ?>
+          <figcaption><?php echo esc_html($primary); ?> örnek görünüm</figcaption>
+        </figure>
+      <?php endif; ?>
+
+      <h3>Bu demoda neler var?</h3>
+      <ul>
+        <li>Modern ana sayfa vitrin akışı ve banner alanları</li>
+        <li>Kategori / ürün liste sayfası mantığı (filtrelenebilir ürün düzeni hissi)</li>
+        <li>Ürün detay deneyimi: görsel–bilgi dengesi ve satın alma aksiyonu</li>
+        <li>Mobil uyumlu yerleşim yaklaşımı (responsive blok hiyerarşisi)</li>
+        <li>SEO temelleri: açıklayıcı metin, odak anahtar kelime ve görsel alt metinleri</li>
+      </ul>
+
+      <h3><?php echo esc_html($primary); ?> kimler için uygun?</h3>
+      <p>
+        Bu örnek; butik işletmeler, hızlı ürün güncelleyen markalar, kampanya odaklı vitrin isteyen mağazalar ve özellikle <em><?php echo esc_html($sec[0] ?? $primary); ?></em> arayan girişimler için uygundur.
+        Ayrıca <?php echo esc_html($lt[0] ?? 'hazır e-ticaret altyapısı'); ?> gibi uzun kuyruklu aramalarda, ziyaretçinin aradığı “örnek sayfa akışı”nı net biçimde gösterir.
+      </p>
+
+      <h3><?php echo esc_html($primary); ?> için SEO ve performans notları</h3>
+      <p>
+        Bu sayfadaki metin, <strong><?php echo esc_html($primary); ?></strong> odağı korunarak hazırlanmıştır. Başlık hiyerarşisi (H2/H3), görsel alt metni ve iç bağlantılar; arama motorlarının sayfa konusunu daha net anlamasına yardımcı olur.
+        Ayrıca görsellerin boyutu, mobilde hızlı yüklenme ve iyi bir kullanıcı deneyimi için kritik olduğu için; galeri görsellerini optimize etmek dönüşümü ve SEO sinyallerini destekler.
+      </p>
+
+      <p>
+        <?php echo esc_html($preset); ?> preset’i; marka algısını güçlendirmek için renk ve tipografi dengesini hedefleyen bir kurgu sunar.
+        Aynı altyapı, farklı preset setleriyle hızlıca çeşitlendirilebilir.
+        Böylece “tasarım dili”ni değiştirmeden, farklı hedef kitlelere uygun alternatifler üretilebilir: kurumsal, minimal, premium veya daha enerjik görünümler.
+      </p>
+
+      <?php if ($has_demo): ?>
+        <p>
+          Canlı demoyu incelemek için üstteki <strong>Canlı Önizle</strong> butonunu kullanabilirsiniz.
+          Bu bağlantı, gerçek akışı (ana sayfa, kategori, ürün ve ödeme adımları) görmenizi sağlar ve tasarım kararlarını daha net değerlendirmenize yardımcı olur.
+        </p>
+      <?php endif; ?>
+
+
+      <h3>Teklif Al</h3>
+      <p>
+        Bu demo kurgusunu kendi markanıza uyarlamak ve hızlıca yayına almak için bir teklif isteyebilirsiniz.
+        <a href="<?php echo esc_url( home_url('/teklif-al/') ); ?>" rel="noopener">Teklif Al</a> sayfasından 1–2 dakikada talep oluşturun; size uygun paket ve kurulum planını paylaşalım.
+      </p>
+      <p class="wr-seo-cta">
+        <a class="wr-showcase-landing-btn" href="<?php echo esc_url( home_url('/teklif-al/') ); ?>" rel="noopener">Teklif Al</a>
+      </p>
+
+      <p>
+        Dış kaynağa örnek olarak, e-ticaret altyapı prensiplerini incelemek için
+        <a href="<?php echo esc_url('https://woocommerce.com/'); ?>" target="_blank" rel="noopener">WooCommerce</a>
+        sayfasına göz atabilirsiniz.
+      </p>
+
+      <h3>Sık Sorulan Sorular</h3>
+      <div class="wr-faq">
+        <?php foreach (wr_sc_get_faq_items($post_id) as $f): ?>
+          <details class="wr-faq-item">
+            <summary><?php echo esc_html($f['q']); ?></summary>
+            <div class="wr-faq-a"><p><?php echo esc_html($f['a']); ?></p></div>
+          </details>
+        <?php endforeach; ?>
+      </div>
+
+    </section>
+    <?php
+
+    return ob_get_clean();
+}
+
+/**
+ * Rank Math Content Analysis: Provide dynamic shortcode content to the analyzer.
+ * Rank Math cannot "see" shortcode-rendered content by default, so we expose a plain-text
+ * version of our SEO block to the content analyzer in the editor.
+ */
+function wr_sc_get_rankmath_content($post_id){
+    if (!function_exists('wr_sc_render_auto_seo_block')) return '';
+    $html = wr_sc_render_auto_seo_block($post_id);
+
+    // Keep minimal HTML so Rank Math can detect headings (H2/H3), images (alt), and links.
+    $allowed = [
+        'h2' => [],
+        'h3' => [],
+        'p'  => [],
+        'ul' => [],
+        'li' => [],
+        'a'  => ['href' => true, 'title' => true, 'rel' => true],
+        'strong' => [],
+        'em' => [],
+        'img' => ['src' => true, 'alt' => true, 'loading' => true],
+        'br' => [],
+    ];
+    $html = wp_kses($html, $allowed);
+
+    // Normalize whitespace a bit to avoid noisy analysis, but keep tags.
+    $html = preg_replace('/\s+/', ' ', $html);
+    return trim($html);
+}
+
+function wr_sc_rankmath_integration_enqueue($hook){
+    global $post;
+    if ( ! ($hook === 'post.php' || $hook === 'post-new.php') ) return;
+    if ( empty($post) || !isset($post->post_type) || $post->post_type !== 'wr_showcase' ) return;
+
+    // Load only if Rank Math analyzer is present.
+    $deps = ['wp-hooks', 'rank-math-analyzer'];
+    wp_enqueue_script(
+        'wr-sc-rankmath-integration',
+        plugins_url('rank-math-integration.js', __FILE__),
+        $deps,
+        '1.0.2',
+        true
+    );
+
+    $seo_text = wr_sc_get_rankmath_content($post->ID);
+    wp_localize_script('wr-sc-rankmath-integration', 'WR_SC_RM', [
+        'content' => $seo_text,
+    ]);
+}
+add_action('admin_enqueue_scripts', 'wr_sc_rankmath_integration_enqueue');
 
 /**
  * Admin scripts for media uploader
@@ -572,6 +1200,54 @@ function wr_showcase_frontend_assets() {
 .wr-seo-block h3{ margin:18px 0 8px; font-size:18px; }
 .wr-seo-block p{ margin:0 0 12px; opacity:.88; }
 .wr-seo-block ul{ margin:0 0 12px 18px; opacity:.9; }
+
+/* Preset pills (header) */
+.wr-showcase-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.wr-pill strong{ font-weight:700; }
+
+/* FAQ */
+.wr-faq{ margin-top:10px; }
+.wr-faq-item{
+  border:1px solid rgba(0,0,0,.08);
+  border-radius:14px;
+  padding:10px 12px;
+  margin:10px 0;
+  background:rgba(255,255,255,.35);
+}
+.wr-faq-item summary{
+  cursor:pointer;
+  font-weight:700;
+  list-style:none;
+}
+.wr-faq-item summary::-webkit-details-marker{ display:none; }
+.wr-faq-a{ margin-top:8px; }
+
+/* Pagination */
+.wr-pagination{ display:flex; justify-content:center; margin:22px 0 0; }
+.wr-pagination .page-numbers{ list-style:none; padding:0; margin:0; display:flex; gap:10px; align-items:center; }
+.wr-pagination .page-numbers a,
+.wr-pagination .page-numbers span{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:38px;
+  height:38px;
+  padding:0 10px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.10);
+  background:#fff;
+  text-decoration:none;
+  font-weight:700;
+}
+.wr-pagination .page-numbers .current{
+  background:#111;
+  color:#fff;
+  border-color:#111;
+}
 CSS;
 
     // JS: hover rotate + tabs + search + modal gallery
@@ -942,6 +1618,12 @@ function wr_sc_rm_auto_title($title){
     $custom = get_post_meta($post_id, 'rank_math_title', true);
     if ($custom) return $title; // user filled it
 
+    if (function_exists('wr_sc_keywords_for_post')) {
+        $kw = wr_sc_keywords_for_post($post_id);
+        $preset = !empty($kw['preset']) ? (' – ' . $kw['preset']) : '';
+        return $kw['cat'] . ' E-Ticaret Demo Sitesi' . $preset . ' | ' . get_the_title($post_id);
+    }
+
     $cat = wr_sc_rm_get_cat_name($post_id);
     $preset = get_post_meta($post_id, '_wr_preset_name', true);
     $preset = $preset ? ' – ' . $preset : '';
@@ -956,10 +1638,19 @@ function wr_sc_rm_auto_description($desc){
     $custom = get_post_meta($post_id, 'rank_math_description', true);
     if ($custom) return $desc;
 
+    if (function_exists('wr_sc_keywords_for_post')) {
+        $kw = wr_sc_keywords_for_post($post_id);
+        $preset_txt = !empty($kw['preset']) ? ($kw['preset'] . ' tasarımıyla ') : '';
+        $sec = !empty($kw['secondary']) ? implode(', ', array_slice($kw['secondary'], 0, 3)) : '';
+        $lt = !empty($kw['long_tail']) ? ($kw['long_tail'][0]) : '';
+        $tail = trim($sec . ($lt ? (', ' . $lt) : ''));
+        $tail = $tail ? (' Anahtar kelimeler: ' . $tail . '.') : '';
+        return $kw['cat'] . ' için hazırlanmış ' . $preset_txt . 'SEO uyumlu e-ticaret demo sitesi. Vitrin, kategori ve ürün akışı tek sayfada.' . $tail;
+    }
+
     $cat = wr_sc_rm_get_cat_name($post_id);
     $preset = get_post_meta($post_id, '_wr_preset_name', true);
     $preset_txt = $preset ? ($preset . ' tasarımıyla ') : '';
-
     return $cat . ' için hazırlanmış ' . $preset_txt . 'modern e-ticaret demo sitesi. Ana sayfa akışı, vitrin ve UX örnekleri tek sayfada. Canlı önizleyin.';
 }
 add_filter('rank_math/frontend/description', 'wr_sc_rm_auto_description', 20);
@@ -970,6 +1661,10 @@ function wr_sc_rm_auto_focus_keyword($keywords){
     if (!$post_id) return $keywords;
     $custom = get_post_meta($post_id, 'rank_math_focus_keyword', true);
     if ($custom) return $keywords;
+    if (function_exists('wr_sc_keywords_for_post')) {
+        $kw = wr_sc_keywords_for_post($post_id);
+        return sanitize_text_field($kw['primary']);
+    }
     $cat = wr_sc_rm_get_cat_name($post_id);
     return sanitize_text_field($cat . ' e-ticaret demo');
 }
@@ -988,12 +1683,29 @@ function wr_showcase_shortcode($atts) {
         'category' => '',
         'columns' => 3,
         'tabs' => 'true',
+        // Back-compat with old runtime shortcode: [hmps_showcase per_page="6" paging="pagination"]
+        'per_page' => 0,
+        'paging' => '',
     ], $atts);
+
+    $per_page = absint($atts['per_page'] ?? 0);
+    $paging_mode = strtolower(trim((string)($atts['paging'] ?? '')));
+    $enable_paging = ($per_page > 0) && ($paging_mode === 'pagination' || $paging_mode === 'true' || $paging_mode === '1');
+
+    // Use a dedicated query arg so we don't fight with theme pagination.
+    $current_page = 1;
+    if ($enable_paging) {
+        $current_page = isset($_GET['hmps_page']) ? max(1, absint($_GET['hmps_page'])) : 1;
+    }
 
     $args = [
         'post_type' => 'wr_showcase',
-        'posts_per_page' => -1,
+        'posts_per_page' => $enable_paging ? $per_page : -1,
     ];
+
+    if ($enable_paging) {
+        $args['paged'] = $current_page;
+    }
 
     if (!empty($atts['category'])) {
         $args['tax_query'] = [
@@ -1124,6 +1836,67 @@ function wr_showcase_shortcode($atts) {
 
     echo '</div>'; // .wr-showcase-wrap
 
+    // Pagination
+    if ($enable_paging && !is_wp_error($query) && $query->max_num_pages > 1) {
+        $base = remove_query_arg('hmps_page');
+        $base = add_query_arg('hmps_page', '%#%', $base);
+
+        $links = paginate_links([
+            'base'      => $base,
+            'format'    => '',
+            'current'   => $current_page,
+            'total'     => (int) $query->max_num_pages,
+            'type'      => 'array',
+            'prev_next' => true,
+            'prev_text' => '‹',
+            'next_text' => '›',
+        ]);
+
+        if (!empty($links) && is_array($links)) {
+            echo '<nav class="wr-pagination" aria-label="Pagination"><ul class="page-numbers">';
+            foreach ($links as $l) {
+                echo '<li>' . $l . '</li>';
+            }
+            echo '</ul></nav>';
+        }
+    }
+
     return ob_get_clean();
 }
 add_shortcode('wr_showcase', 'wr_showcase_shortcode');
+// Old runtime shortcode alias
+add_shortcode('hmps_showcase', 'wr_showcase_shortcode');
+
+
+/**
+ * Admin: auto-fill preset fields on selection (edit screen)
+ */
+add_action('admin_enqueue_scripts', function($hook){
+    global $typenow;
+    if ($typenow !== 'wr_showcase') return;
+
+    // Only on post edit/new screens
+    if ($hook !== 'post.php' && $hook !== 'post-new.php') return;
+
+    $lib = function_exists('wr_sc_get_preset_library') ? wr_sc_get_preset_library() : [];
+    // Normalize library to the exact keys JS expects
+    $norm = [];
+    foreach ($lib as $k => $p) {
+        if (!is_array($p)) continue;
+        $norm[$k] = [
+            'name' => $p['name'] ?? $k,
+            'slug' => $p['slug'] ?? $k,
+            'primary' => $p['primary'] ?? '',
+            'dark' => $p['dark'] ?? '',
+            'bg' => $p['bg'] ?? '',
+            'footer' => $p['footer'] ?? '',
+            'link' => $p['link'] ?? '',
+            'body_font' => $p['body_font'] ?? '',
+            'heading_font' => $p['heading_font'] ?? '',
+            'focus_keyword' => $p['focus_keyword'] ?? '',
+        ];
+    }
+
+    wp_enqueue_script('wr-sc-preset-autofill', plugins_url('admin-preset-autofill.js', __FILE__), [], '1.0.0', true);
+    wp_localize_script('wr-sc-preset-autofill', 'WR_SC_PRESET_LIB', $norm);
+});
